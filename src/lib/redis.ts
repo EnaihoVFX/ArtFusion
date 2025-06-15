@@ -14,41 +14,57 @@ function createRedisConnection() {
 
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
   
+  console.log('🔗 Creating Redis connection with URL:', redisUrl.replace(/:[^:@]*@/, ':****@'))
+  
   const redis = new Redis(redisUrl, {
     // Enable offline queue to handle connection issues
     enableOfflineQueue: true,
     // Retry connection attempts
-    maxRetriesPerRequest: 1,
+    maxRetriesPerRequest: 3,
     // Increase connection timeout
-    connectTimeout: 5000,
-    // Remove TLS configuration for local development
-    tls: process.env.NODE_ENV === 'production' ? {
-      rejectUnauthorized: false
-    } : undefined,
+    connectTimeout: 10000,
+    // Command timeout
+    commandTimeout: 5000,
+    // Remove TLS configuration for Upstash compatibility
+    tls: undefined,
     // Enable reconnection
     retryStrategy: (times) => {
-      if (times > 3) {
+      console.log(`🔄 Redis retry attempt ${times}`)
+      if (times > 5) {
+        console.error('❌ Redis connection failed after 5 attempts')
         isRedisAvailable = false
-        return null // Stop retrying after 3 attempts
+        return null // Stop retrying after 5 attempts
       }
-      return Math.min(times * 100, 1000)
+      return Math.min(times * 200, 2000)
     }
   })
 
   // Handle Redis connection events
   redis.on('error', (err) => {
-    console.error('Redis connection error:', err)
+    console.error('❌ Redis connection error:', err.message)
+    console.error('Redis error details:', {
+      code: (err as any).code,
+      errno: (err as any).errno,
+      syscall: (err as any).syscall,
+      address: (err as any).address,
+      port: (err as any).port
+    })
     isRedisAvailable = false
   })
 
   redis.on('connect', () => {
-    console.log('Redis connected successfully')
+    console.log('✅ Redis connected successfully')
     isRedisAvailable = true
   })
 
   redis.on('reconnecting', () => {
-    console.log('Redis reconnecting...')
+    console.log('🔄 Redis reconnecting...')
     isRedisAvailable = false
+  })
+
+  redis.on('ready', () => {
+    console.log('✅ Redis is ready')
+    isRedisAvailable = true
   })
 
   return redis
